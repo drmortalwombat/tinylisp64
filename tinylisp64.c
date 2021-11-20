@@ -223,9 +223,19 @@ bool checkStack(void)
 
 #pragma native(checkStack)
 
+void updateStatus(void)
+{
+	char	num[10];
+	utoa(NumFreeCells, num, 10);
+	strcat(num, "     ");
+	cwin_putat_chars(&StatusWindow, 9, 0, num, 4, 14);	
+}
+
 void propeller(void)
 {
 	cwin_putat_char(&StatusWindow, 1, 0, Propeller[(PropIndex++) &3], 14);
+	if (PropIndex == 0)
+		updateStatus();
 }
 
 void initCells(void)
@@ -740,54 +750,61 @@ void saveAtom(char fnum, struct Cell * cell)
 {
 	char buffer[20];
 	
-	switch (cell->type)
+	if (cell)
 	{
-		case CT_NUMBER:
-			fnumber(cell->u.value, buffer);
-			krnio_puts(fnum, buffer);
-			break;
-		case CT_SYMBOL:
-			krnio_puts(fnum, (char *)cell + 1);
-			break;
-		case CT_CONS:
-			krnio_puts(fnum, "(");
-			while (cell)
-			{
-				if (cell->type == CT_CONS)
+		switch (cell->type)
+		{
+			case CT_NUMBER:
+				fnumber(cell->u.value, buffer);
+				krnio_puts(fnum, buffer);
+				break;
+			case CT_SYMBOL:
+				krnio_puts(fnum, (char *)cell + 1);
+				break;
+			case CT_CONS:
+				krnio_puts(fnum, "(");
+				while (cell)
 				{
-					saveAtom(fnum, cell->u.car);				
+					if (cell->type == CT_CONS)
+					{
+						saveAtom(fnum, cell->u.car);				
+						cell = cell->u.cdr;
+					
+						if (cell)
+							krnio_puts(fnum, " ");
+					}
+					else
+					{
+						krnio_puts(fnum, ". ");
+						saveAtom(fnum, cell);
+						cell = nullptr;
+					}
+				}
+				krnio_puts(fnum, ")");
+				break;
+			case CT_BUILTIN:
+				krnio_puts(fnum, "$$");
+				break;
+			case CT_QUOTE:
+				krnio_puts(fnum, "'");
+				saveAtom(fnum, cell->u.car);
+				break;
+			case CT_LAMBDA:
+				krnio_puts(fnum, "(LAMBDA ");
+				while (cell)
+				{
+					saveAtom(fnum, cell->u.car);
 					cell = cell->u.cdr;
-				
 					if (cell)
 						krnio_puts(fnum, " ");
 				}
-				else
-				{
-					krnio_puts(fnum, ". ");
-					saveAtom(fnum, cell);
-					cell = nullptr;
-				}
-			}
-			krnio_puts(fnum, ")");
-			break;
-		case CT_BUILTIN:
-			krnio_puts(fnum, "$$");
-			break;
-		case CT_QUOTE:
-			krnio_puts(fnum, "'");
-			saveAtom(fnum, cell->u.car);
-			break;
-		case CT_LAMBDA:
-			krnio_puts(fnum, "(LAMBDA ");
-			while (cell)
-			{
-				saveAtom(fnum, cell->u.car);
-				cell = cell->u.cdr;
-				if (cell)
-					krnio_puts(fnum, " ");
-			}
-			krnio_puts(fnum, ")");
-			break;
+				krnio_puts(fnum, ")");
+				break;
+		}
+	}
+	else
+	{
+		krnio_puts(fnum, "NIL");		
 	}
 }
 
@@ -795,8 +812,25 @@ struct Cell * builtinSave(struct Cell ** scope, struct Cell * cell)
 {
 	char fnum = 3;
 	
-	krnio_setnam("@0:TESTLISP,S,W");
-	if (krnio_open(fnum, 9, 3))
+	const char * fname = "TESTLISP";
+	
+	struct Cell * sname = car(cell);
+	if (sname && sname->type == CT_SYMBOL)
+		fname = (char *)sname + 1;
+
+	char fnbuffer[20];
+	strcpy(fnbuffer, "@0:");
+	strcat(fnbuffer, fname);
+	strcat(fnbuffer, ",S,W");
+
+	char drive = 8;
+
+	struct Cell * sdrive = car(cdr(cell));
+	if (sdrive && sdrive->type == CT_NUMBER)
+		drive = (char)(sdrive->u.value);
+
+	krnio_setnam(fnbuffer);
+	if (krnio_open(fnum, drive, 3))
 	{
 		struct Cell * sc = *scope;
 		while (sc)
@@ -846,9 +880,26 @@ struct Cell * builtinSave(struct Cell ** scope, struct Cell * cell)
 struct Cell * builtinLoad(struct Cell ** scope, struct Cell * cell)
 {	
 	char fnum = 2;
+
+	const char * fname = "TESTLISP";
 	
-	krnio_setnam("0:TESTLISP,S,R");
-	if (krnio_open(fnum, 9, 2))
+	struct Cell * sname = car(cell);
+	if (sname && sname->type == CT_SYMBOL)
+		fname = (char *)sname + 1;
+
+	char fnbuffer[20];
+	strcpy(fnbuffer, "0:");
+	strcat(fnbuffer, fname);
+	strcat(fnbuffer, ",S,R");
+
+	char drive = 8;
+
+	struct Cell * sdrive = car(cdr(cell));
+	if (sdrive && sdrive->type == CT_NUMBER)
+		drive = (char)(sdrive->u.value);
+
+	krnio_setnam(fnbuffer);
+	if (krnio_open(fnum, drive, 2))
 	{
 		while (krnio_gets(fnum, InputBuffer, 160) > 0)
 		{
@@ -889,55 +940,60 @@ void printAtom(CharWin * win, struct Cell * cell, char color)
 {
 	char buffer[20];
 	
-	switch (cell->type)
+	if (cell)
 	{
-		case CT_NUMBER:
-			fnumber(cell->u.value, buffer);
-			print(win, buffer, color);
-			break;
-		case CT_SYMBOL:
-			print(win, (char *)cell + 1, color);
-			break;
-		case CT_CONS:
-			print(win, "(", color);
-			while (cell)
-			{
-				if (cell->type == CT_CONS)
+		switch (cell->type)
+		{
+			case CT_NUMBER:
+				fnumber(cell->u.value, buffer);
+				print(win, buffer, color);
+				break;
+			case CT_SYMBOL:
+				print(win, (char *)cell + 1, color);
+				break;
+			case CT_CONS:
+				print(win, "(", color);
+				while (cell)
+				{
+					if (cell->type == CT_CONS)
+					{
+						printAtom(win, cell->u.car, color);				
+						cell = cell->u.cdr;
+					
+						if (cell)
+							print(win, " ", color);
+					}
+					else
+					{
+						print(win, ". ", color);
+						printAtom(win, cell, color);
+						cell = nullptr;
+					}
+				}
+				print(win, ")", color);
+				break;
+			case CT_BUILTIN:
+				print(win, "$$", color);
+				break;
+			case CT_QUOTE:
+				print(win, "'", color);
+				printAtom(win, cell->u.car, color);
+				break;
+			case CT_LAMBDA:
+				print(win, "(LAMBDA ", color);
+				while (cell)
 				{
 					printAtom(win, cell->u.car, color);				
 					cell = cell->u.cdr;
-				
 					if (cell)
 						print(win, " ", color);
 				}
-				else
-				{
-					print(win, ". ", color);
-					printAtom(win, cell, color);
-					cell = nullptr;
-				}
-			}
-			print(win, ")", color);
-			break;
-		case CT_BUILTIN:
-			print(win, "$$", color);
-			break;
-		case CT_QUOTE:
-			print(win, "'", color);
-			printAtom(win, cell->u.car, color);
-			break;
-		case CT_LAMBDA:
-			print(win, "(LAMBDA ", color);
-			while (cell)
-			{
-				printAtom(win, cell->u.car, color);				
-				cell = cell->u.cdr;
-				if (cell)
-					print(win, " ", color);
-			}
-			print(win, ")", color);			
-			break;
+				print(win, ")", color);			
+				break;
+		}
 	}
+	else
+		print(win, "NIL", color);	
 }
 
 struct Cell * builtinEdit(struct Cell ** scope, struct Cell * cell)
@@ -1016,14 +1072,6 @@ void initBuiltins(void)
 	addBuiltin(":LOAD", builtinLoad);	
 	addBuiltin(":EDIT", builtinEdit);	
 	addBuiltin(":RESET", builtinReset);	
-}
-
-void updateStatus(void)
-{
-	char	num[10];
-	utoa(NumFreeCells, num, 10);
-	strcat(num, "     ");
-	cwin_putat_chars(&StatusWindow, 9, 0, num, 4, 14);	
 }
 
 int main(void)
