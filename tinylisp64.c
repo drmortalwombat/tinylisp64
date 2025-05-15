@@ -19,7 +19,9 @@ enum CellType
 	CT_BUILTIN,
 	CT_LAMBDA,
 	CT_QUOTE,
-	CT_FREE
+	CT_FREE,
+
+	CT_MAX = 255
 };
 
 struct Cell;
@@ -398,7 +400,7 @@ inline struct Cell * allocNumber(float value)
 
 int InputPos;
 
-struct float parseNumber(void)
+float parseNumber(void)
 {
 	float value = 0, scale = 1;
 	
@@ -456,7 +458,7 @@ struct Cell * parseAtom(bool list)
 		++InputPos;
 		return nullptr;
 	}
-	else if (ch == ''')
+	else if (ch == '\'')
 	{
 		++InputPos;
 		cell = allocCell(CT_QUOTE);
@@ -468,7 +470,7 @@ struct Cell * parseAtom(bool list)
 		do	{
 			buffer[i++] = ch;
 			ch = InputBuffer[++InputPos];
-		} while (ch && ch != '(' && ch != ')' && ch != ' ' && ch != 160 && ch != ''');
+		} while (ch && ch != '(' && ch != ')' && ch != ' ' && ch != 160 && ch != '\'');
 		buffer[i] = 0;
 		cell = findSymbol(buffer);		
 	}
